@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>サーバー付きブログ</title>
+<style>
+body{font-family:Arial;max-width:700px;margin:auto;padding:20px;}
+input, textarea{width:100%;padding:8px;margin-bottom:10px;}
+button{padding:6px 10px;margin:2px;}
+.post, .comment{border:1px solid #ccc;padding:8px;margin-bottom:8px;}
+.ad{background:#f0f0f0;padding:5px;margin:5px 0;text-align:center;}
+#message{color:green;}
+#error{color:red;}
+</style>
+</head>
+<body>
+
+<h1>サーバー付きブログ</h1>
+
+<div id="authSection">
+  <h2>登録 / ログイン</h2>
+  <input type="text" id="username" placeholder="ユーザー名">
+  <input type="password" id="password" placeholder="パスワード">
+  <button onclick="register()">登録</button>
+  <button onclick="login()">ログイン</button>
+  <div id="authMessage"></div>
+</div>
+
+<div id="postSection" style="display:none;">
+  <h2>新しい投稿</h2>
+  <input type="text" id="title" placeholder="タイトル">
+  <textarea id="content" rows="3" placeholder="本文"></textarea>
+  <input type="file" id="image">
+  <button onclick="addPost()">投稿</button>
+  <hr>
+  <h2>投稿一覧</h2>
+  <div id="postsContainer"></div>
+</div>
+
+<script>
+const API = "/api"; // サーバーと同じURLにアクセス
+
+let token = null;
+
+/* ===== 登録 ===== */
+function register(){
+  const u=document.getElementById("username").value.trim();
+  const p=document.getElementById("password").value.trim();
+  const msg=document.getElementById("authMessage");
+  if(!u||!p){ msg.textContent="ユーザー名とパスワード必須"; return;}
+  fetch(`${API}/register`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:u,password:p})
+  }).then(r=>r.json()).then(d=>{
+    if(d.error){ msg.style.color="red"; msg.textContent=d.error; }
+    else{ msg.style.color="green"; msg.textContent="登録成功"; }
+  });
+}
+
+/* ===== ログイン ===== */
+function login(){
+  const u=document.getElementById("username").value.trim();
+  const p=document.getElementById("password").value.trim();
+  const msg=document.getElementById("authMessage");
+  fetch(`${API}/login`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:u,password:p})
+  }).then(r=>r.json()).then(d=>{
+    if(d.error){ msg.style.color="red"; msg.textContent=d.error; return;}
+    token = d.token;
+    document.getElementById("authSection").style.display="none";
+    document.getElementById("postSection").style.display="block";
+    loadPosts();
+  });
+}
+
+/* ===== 投稿 ===== */
+function addPost(){
+  const title = document.getElementById("title").value.trim();
+  const content = document.getElementById("content").value.trim();
+  const imageFile = document.getElementById("image").files[0];
+  if(!title || !content) return;
+  const form = new FormData();
+  form.append("title",title);
+  form.append("content",content);
+  if(imageFile) form.append("image", imageFile);
+  fetch(`${API}/posts`,{
+    method:"POST",
+    headers:{Authorization:"Bearer "+token},
+    body:form
+  }).then(()=>{ document.getElementById("title").value=""; document.getElementById("content").value=""; loadPosts(); });
+}
+
+/* ===== 投稿一覧 ===== */
+function loadPosts(){
+  fetch(`${API}/posts`).then(r=>r.json()).then(posts=>{
+    const container = document.getElementById("postsContainer");
+    container.innerHTML="";
+    posts.forEach(p=>{
+      const div = document.createElement("div");
+      div.className="post";
+      div.innerHTML=`
+        <h3>${p.title} by ${p.username}</h3>
+        <p>${p.content}</p>
+        ${p.image ? `<img src="${p.image}" style="max-width:100%;">` : ""}
+        <button onclick="likePost(${p.id})">👍 ${p.likes}</button>
+        <button onclick="addComment(${p.id})">コメント</button>
+        <div class="comments" id="comments-${p.id}"></div>
+        <div class="ad"><a href="#" onclick="adClick(${p.id});return false;">広告リンク（クリックで計測）</a></div>
+      `;
+      container.appendChild(div);
+      loadComments(p.id);
+    });
+  });
+}
+
+/* ===== 投稿いいね ===== */
+function likePost(id){
+  fetch(`${API}/posts/${id}/like`,{method:"POST", headers:{Authorization:"Bearer "+token}}).then(()=>loadPosts());
+}
+
+/* ===== コメント ===== */
+function addComment(postId){
+  const txt = prompt("コメントを入力");
+  if(!txt) return;
+  fetch(`${API}/comments`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json", Authorization:"Bearer "+token},
+    body:JSON.stringify({post_id:postId,comment:txt})
+  }).then(()=>loadComments(postId));
+}
+
+function loadComments(postId){
+  fetch(`${API}/comments?post_id=${postId}`).then(r=>r.json()).then(comments=>{
+    const div = document.getElementById("comments-"+postId);
+    div.innerHTML="";
+    comments.forEach(c=>{
+      const cdiv = document.createElement("div");
+      cdiv.className="comment";
+      cdiv.innerHTML=`${c.username}: ${c.comment} <button onclick="likeComment(${postId},${c.id})">👍 ${c.likes}</button>`;
+      div.appendChild(cdiv);
+    });
+  });
+}
+
+function likeComment(postId, commentId){
+  fetch(`${API}/comments/${commentId}/like`,{method:"POST", headers:{Authorization:"Bearer "+token}}).then(()=>loadComments(postId));
+}
+
+/* ===== 広告クリック ===== */
+function adClick(postId){
+  fetch(`${API}/ads/${postId}/click`,{method:"POST"}).then(()=>alert("広告クリック計測されました"));
+}
+</script>
+</body>
+</html>
